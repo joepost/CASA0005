@@ -1,0 +1,72 @@
+---
+title: "GIS Wk4 Homework Task"
+author: "J Post"
+date: "2022-10-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(terra)
+library(sf)
+library(tidyverse)
+library(here)
+library(countrycode)
+library(tmap)
+library(tmaptools)
+```
+
+## Task
+
+Download gender inequality index data from the UNDP, and join to spatial data of the World. Create a new column of difference in inequality between 2010 and 2019. Plot the map, and then share on Github.
+
+### Load in Data
+
+```{r loaddata}
+genderindex <- read_csv(
+  here("Data", "HDR21-22_Composite_indices_complete_time_series.csv")
+  )
+
+worldshp <- read_sf(here("Data", "World_Countries__Generalized_.shp"))
+
+```
+
+## Clean and format
+
+- Select the columns for years 2010 and 2019
+- Calculate new column for change in index between years
+- Convert country ID to a shared code format
+- Join to shapefile data
+
+```{r cleandata}
+gendercln <- genderindex %>% 
+  select(iso3:region, gii_2010, gii_2019) %>%
+  mutate(giidiff = gii_2019 - gii_2010,
+         giidiff_pc = gii_2010/(gii_2019-gii_2010),
+         iso2 = countrycode(iso3, "iso3c", "iso2c")
+  )
+
+genderjoin <- worldshp %>%
+  left_join(gendercln, by = c("ISO" = "iso2"))
+
+```
+
+## Plot the map of GII difference
+
+```{r plotmap}
+
+tmap_mode("plot")
+
+giimap <- tm_shape(genderjoin) +
+  tm_polygons("giidiff_pc",
+              style = "pretty",
+              palette = "PRGn") +
+  tm_layout(main.title = "Change in Gender Inequality Index, 2010 to 2019",
+            main.title.position = "center")
+giimap
+
+```
+
+
+

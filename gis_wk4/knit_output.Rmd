@@ -1,0 +1,27 @@
+---
+title: "Markdown Test Workbook"
+author: "J Post"
+date: "2022-10-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(terra)
+```
+
+## R Markdown
+
+Trial importing a plot from wk3 practical into RMarkdown document.  
+**NOTE:** Useful shortcuts:  
+1.'Ctrl+Alt+i' - create a new code chunk  
+2.'CTRL + SHIFT + c' - new comment in code  
+3.'CTRL+i' - Align code consistently  
+4.'CTRL + ALT + A' - Format ugly code to nice looking code  
+
+```{r}
+jan <-terra::rast(here("Data", "wc2.1_5m_wind_01.tif"))
+# have a look at the raster layer jan
+plot(jan)
+```
