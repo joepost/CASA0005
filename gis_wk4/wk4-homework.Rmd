@@ -26,6 +26,8 @@ Download gender inequality index data from the UNDP, and join to spatial data of
 ```{r loaddata}
 genderindex <- read_csv(
   here("Data", "HDR21-22_Composite_indices_complete_time_series.csv")
+  # Think about the 'na =' and 'locale' arguments
+  #   e.g. review the csv first to see what the na is represented as
   )
 
 worldshp <- read_sf(here("Data", "World_Countries__Generalized_.shp"))
@@ -41,10 +43,13 @@ worldshp <- read_sf(here("Data", "World_Countries__Generalized_.shp"))
 
 ```{r cleandata}
 gendercln <- genderindex %>% 
+  # Remember to use 'clean_names' (janitor package)
   select(iso3:region, gii_2010, gii_2019) %>%
   mutate(giidiff = gii_2019 - gii_2010,
          giidiff_pc = gii_2010/(gii_2019-gii_2010),
-         iso2 = countrycode(iso3, "iso3c", "iso2c")
+         iso2 = countrycode(iso3, 
+                            origin = "iso3c", 
+                            destination = "iso2c")
   )
 
 genderjoin <- worldshp %>%
