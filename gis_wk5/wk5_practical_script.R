@@ -79,5 +79,31 @@ tm_hotels <- tm_shape(Hotels) +
   tm_polygons("AccomCount",
               breaks = breaks,
               # style = "jenks",
-              palette = "PuBu")
-tm_hotels
+              palette = "PuBu") +
+  tm_legend(show = FALSE) +
+  tm_layout(frame=FALSE) +
+  tm_credits("(a)", position=c(0,0.75), size=1.5)  
+    #Add '(a)' for identification in faceted map
+
+tm_listings <- tm_shape(Listings) +
+  tm_polygons("AccomCount",
+              breaks = breaks,
+              # style = "jenks",
+              palette = "PuBu") +
+  tm_legend(show = FALSE) +
+  tm_layout(frame=FALSE) +
+  tm_credits("(b)", position=c(0,0.75), size=1.5)  
+    #Add '(b)' for identification in faceted map
+
+legend <- tm_shape(Hotels) +
+  tm_polygons("AccomCount",
+              palette="PuBu",
+              breaks = breaks) +
+  tm_scale_bar(position=c(0.2,0.04), text.size=0.6)+
+  tm_compass(north=0, position=c(0.65,0.6))+
+  tm_layout(legend.only = TRUE, legend.position=c(0.2,0.25),asp=0.1,
+            title = "Accommodation Count")+
+  tm_credits("(c) OpenStreetMap contrbutors and Air b n b", position=c(0.0,0.0))
+
+t <- tmap_arrange(tm_hotels, tm_listings, legend, ncol=2)
+t
