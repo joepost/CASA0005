@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 Data/*
+Output/*
 gis_wk3/Data/*
 gis_wk4/Data/*
 gis_wk5/Data/*

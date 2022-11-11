@@ -107,3 +107,42 @@ legend <- tm_shape(Hotels) +
 
 t <- tmap_arrange(tm_hotels, tm_listings, legend, ncol=2)
 t
+
+
+
+# 4. Alternative mapping options ------------------------------------------
+
+# Use the grid package to facet across specified positions in a grid
+library(grid)
+grid.newpage()
+
+pushViewport(viewport(layout=grid.layout(2,2)))
+print(tm_hotels, vp=viewport(
+  # Specify position using x,y coords in grid
+  layout.pos.col=1, layout.pos.row=1, height=5))
+print(tm_listings, vp=viewport(
+  layout.pos.col=2, layout.pos.row=1, height=5))
+print(legend, vp=viewport(
+  layout.pos.col=2, layout.pos.row=2, height=5))
+
+
+
+# 5. Export completed map -------------------------------------------------
+
+tmap_save(t, '../Output/wk5_HotelsandAirbnbR.png')
+
+# tmap_save(main,
+#           insets_tm = inset,
+#           insets_vp=viewport(x=0.86, y=0.29, width=.5, height=.55), 
+#           filename="test.pdf", dpi=600)
+
+
+
+# 6. Creating interactive maps --------------------------------------------
+
+tmap_mode("view")  # Sets map mode to interactive viewing
+
+tm_shape(Listings) +
+  tm_polygons("AccomCount", breaks = breaks)
+
+# See wk5 github site for leaflet mapping code, for more complex interactive maps
