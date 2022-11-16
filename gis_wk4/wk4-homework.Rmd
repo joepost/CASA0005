@@ -19,7 +19,10 @@ library(tmaptools)
 
 ## Task
 
-Download gender inequality index data from the UNDP, and join to spatial data of the World. Create a new column of difference in inequality between 2010 and 2019. Plot the map, and then share on Github.
+Download gender inequality index (GII) data from the UNDP, and join to spatial data of the World. Create a new column of difference in inequality between 2010 and 2019. Plot the map, and then share on Github.
+
+GII data is downloaded from [here](https://hdr.undp.org/data-center/documentation-and-downloads) (Table 5)  
+World spatial data is downloaded from [here](https://hub.arcgis.com/datasets/esri::world-countries-generalized/about)
 
 ### Load in Data
 
@@ -64,14 +67,65 @@ genderjoin <- worldshp %>%
 tmap_mode("plot")
 
 giimap <- tm_shape(genderjoin) +
-  tm_polygons("giidiff_pc",
-              style = "pretty",
+  tm_polygons("giidiff",
+              style = "jenks",
               palette = "PRGn") +
   tm_layout(main.title = "Change in Gender Inequality Index, 2010 to 2019",
             main.title.position = "center")
 giimap
 
+# **NOTE
+#   See Andy's script from Wk4/5 homework task repo for code on faceted maps
+#    and formatting a shared legend and caption
+
 ```
 
+Create faceted map with shared legend
+
+```{r plot_facetmap}
+
+breaks_index <- c(0, 0.20, 0.35, 0.45, 0.6, 0.8)
+breaks_diff <- c(-0.5, -0.25, -0.08, -0.05, -0.02, 0.1)
+
+map_gii2010 <- tm_shape(genderjoin) +
+  tm_polygons("gii_2010",
+              breaks = breaks_index,
+              # style = "jenks",
+              palette = "PuRd") +
+  tm_layout(frame = FALSE) + 
+  tm_legend(show = FALSE) +
+  tm_credits("(a) GII by Country, 2010", position = c(0,0.9), size = 0.8)
+
+map_gii2019 <- tm_shape(genderjoin) +
+  tm_polygons("gii_2019",
+              breaks = breaks_index,
+              # style = "jenks",
+              palette = "PuRd") +
+  tm_layout(frame = FALSE) + 
+  tm_legend(show = FALSE) +
+  tm_credits("(b) GII by Country, 2019", position = c(0,0.9), size = 0.8)
+
+map_giidiff <- tm_shape(genderjoin) +
+  tm_polygons("giidiff",
+              breaks = breaks_diff,
+              # style = "jenks",
+              palette = "PRGn") +
+  tm_layout(frame = FALSE) + 
+  tm_legend(show = FALSE) +
+  tm_credits("(c) Change in GII, 2010 to 2019", position = c(0,0.9), size = 0.8)
+
+legend <- tm_shape(genderjoin) +
+  tm_polygons("gii_2010",
+              breaks = breaks_index,
+              # style = "jenks",
+              palette = "PuRd") +
+  tm_layout(legend.only = TRUE, legend.position=c(0.2,0.25), asp=0.1,
+            title = "Gender Inequality Index") +
+  tm_credits("Source: United Nations Development Program (UNDP)")
+
+facetmap <- tmap_arrange(map_gii2010, map_gii2019, map_giidiff, legend)
+facetmap
+
+```
 
 
