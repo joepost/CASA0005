@@ -11,6 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 #Load packages
 
 library(tidyverse)
+library(tidymodels)
+library(tidypredict)
 library(crayon)
 library(tmap)
 library(geojsonio)
@@ -25,10 +27,11 @@ library(spdep)
 library(car)
 library(fs)
 library(janitor)
+library(corrr)
 
 ```
 
-## 8.4.1 Preparing the data
+## Preparing the data
 
 Read in datasets to be used:
 
@@ -86,9 +89,25 @@ Londonwards<-fs::dir_info(here::here("data",
 
 
 # Read in attribute data
-LondonWardProfiles <- read_csv(here::here("data","ward-profiles-excel-version.csv"), 
+LondonWardProfiles <- read_csv(here::here("data","ward-profiles-excel-version.csv"),
+                               #Identify missing values in the source file
+                               na = c("", "NA", "n/a"), 
                                col_names = TRUE, 
-                               locale = locale(encoding = 'Latin1'))
+                               locale = locale(encoding = 'Latin1')) %>%
+  clean_names()
+
+# spec(LondonWardProfiles)
+
+
+# Read in schools point data
+ldn_schools <- read_csv(here::here("data", "all_schools_xy_2016.csv"),
+                        col_names = TRUE,
+                        locale = locale(encoding = 'Latin1')) %>%
+  # Convert to spatial object
+  st_as_sf(., coords = c("x","y"),
+           crs = 4326) %>%
+  #Filter to secondary schools
+  filter(PHASE == "Secondary")
 
 ```
 
@@ -98,6 +117,13 @@ Plot a map of the shapefile data:
 
 ```{r checkshapedata}
 qtm(Londonwards)
+
+qtm(ldn_schools)
+
+# Check CRS for each geofile
+check_crs <- append(st_crs(Londonwards), st_crs(ldn_schools))
+check_crs[1]
+check_crs[3]
 ```
 
 View a sample of the attribute data:
@@ -106,14 +132,210 @@ View a sample of the attribute data:
 head(LondonWardProfiles)
 ```
 
-```{r checkread}
-#check all of the columns have been read in correctly
-Datatypelist <- LondonWardProfiles %>% 
-  summarise_all(class) %>%
-  pivot_longer(everything(), 
-               names_to="All_variables", 
-               values_to="Variable_class")
+### Merge spatial and attribute data
 
-Datatypelist
+Reproject spatial objects to the same CRS.
+
+Merge the attribute data to the wards shapefile.
+
+```{r checkread}
+
+#Transform the CRS for school points to the British grid 
+ldn_schools <- st_transform(ldn_schools, crs = 27700)
+
+wards_merged <- Londonwards %>%
+  left_join(LondonWardProfiles, by = c("GSS_CODE" = "new_code")) %>%
+  #Select desired columns
+  #Note that 'geometry' is sticky - i.e. does not need to be specified in select statement to be retained
+  select(NAME, GSS_CODE, BOROUGH, 
+         population_2015, population_density_persons_per_sq_km_2013,
+         average_gcse_capped_point_scores_2014,
+         unauthorised_absence_in_all_schools_percent_2013,
+         median_house_price_2014)
+
+```
+
+Map the joined file to check the data
+
+```{r mergemap}
+
+qtm(wards_merged, 
+    fill = "average_gcse_capped_point_scores_2014",
+    borders = NULL)
+
+```
+
+## Regression Model
+Start the investigation by fitting a linear regression model to the dependent and independent variables. The first step here is to check the distributions of the input variables.
+
+```{r distributions}
+dist_gcse <- ggplot(wards_merged,
+                    aes(x = average_gcse_capped_point_scores_2014)) +
+  geom_histogram(aes(y = ..density..),
+                 binwidth = 5) +
+  #Add density line
+  geom_density(colour = "orange",
+               linewidth = 1, adjust = 1)
+dist_gcse
+
+
+dist_absence <- ggplot(wards_merged,
+                    aes(x = unauthorised_absence_in_all_schools_percent_2013)) +
+  geom_histogram(aes(y = ..density..),
+                 binwidth = 0.1) +
+  #Add density line
+  geom_density(colour = "lightblue",
+               linewidth = 1, adjust = 1)
+dist_absence
+```
+
+Both variables are roughly normally distributed.  
+
+```{r linmodel}
+#Create a regression model on its own
+model1 <- wards_merged %>%
+  lm(average_gcse_capped_point_scores_2014 ~ unauthorised_absence_in_all_schools_percent_2013,
+     data = .)
+
+summary(model1)
+```
+
+The scatterplot below shows GCSE scores by school absences.
+
+```{r regplot}
+# Create a base scatter plot
+q <- qplot(x = unauthorised_absence_in_all_schools_percent_2013, 
+           y = average_gcse_capped_point_scores_2014, 
+           data=wards_merged)
+
+#Add a regression line
+q + stat_smooth(method="lm", se=FALSE, size=1) + 
+  #jitter argument used as the x-scale is rounded
+  geom_jitter()
+```
+
+The assumptions of a linear regression model must then be validated. These are:  
+\
+1. Is there a linear association between the variables?  
+2. Are the errors independent?  
+3. Are the errors normally distributed?  
+4. Do the errors have equal variance?  
+
+To test these assumptions, the model first needs to be tidied using 'broom' and 'tidypredict' packages.
+
+```{r broom, paged.print=FALSE}
+
+#Create a tibble storing the test statistics
+broom::tidy(model1)
+
+#Creates a tibble of the extended regression results
+glance(model1)
+
+#Use tidypredict to add a column of expected result given the model
+df_model1 <- wards_merged %>% tidypredict_to_column(model1)
+
+```
+
+
+### Assumption 1: Linear association 
+Plot a scatterplot to visualise the relationship. See the scatterplot above for confirmation of this assumption.  
+  
+
+**Transforming variables for regression**  
+If variables are not normally distributed, they will often need to be transformed in some way to make them more appropriate for linear regression. A useful method for this is **Tukey's Ladder**, which tests different levels of power relationships to see which might have the most normal outcomes.  
+
+```{r tukeyladder}
+symbox(~median_house_price_2014,
+       wards_merged,
+       na.rm= TRUE,
+       powers = seq(-3, 3, by=0.5))  #vector of powers to which 'x' is raised (here specified as a sequence)
+```
+
+The Tukey's ladder suggests that a power relationship of x raised to the power of -1 will have the closest approximation to a normal distribution. To visualise this in a scatterplot:  
+
+```{r tukeyscatter}
+qplot(x = (median_house_price_2014)^-1, 
+      y = average_gcse_capped_point_scores_2014,
+      data=wards_merged)
+```
+
+
+### Assumption 2: Normally distributed errors
+Use the 'augment' function to store the fitted values and residuals calculated from the model, to plot a histogram of the residuals. From the plot below, we can be satisfied that assumption 2 has been met. 
+
+```{r assumption2}
+df_model1 <- augment(model1, wards_merged)
+
+#Plot histogram of the residuals
+df_model1 %>% select(., .resid) %>%
+  pull() %>%
+  qplot() +
+  geom_histogram()
+```
+
+
+### Assumption 3: Independent errors & errors with equal variance
+The best way to quickly assess whether assumption 3 has been met, is to produce a scatter plot of residuals versus fitted values.  
+
+```{r assumption3}
+#Quick plot
+# qplot(x = .fitted, 
+#       y = .resid,
+#       data=df_model1)
+
+#create using ggplot (better practice)
+ggplot(data = df_model1,
+       aes(x = .fitted, y = .resid)) +
+  geom_point() + 
+  geom_hline(yintercept = 0,
+             color = "blue") +
+  labs(title = "Scatter plot of GCSE score fitted values versus residuals")
+```
+
+How to interpret this? If residuals (errors) are independent, we would expect to see:  
+\
+-   The residuals form a roughly horizontal band around the 0 line. This suggests the variance of the errors are equal.
+-   The residuals "bounce randomly" around the 0 line. This suggests that the errors are independent.
+-   No one residual "stands out" from the basic random pattern of residuals. This suggests that there are no outliers.  
+
+
+## Multiple Regression
+
+To advance the analysis, additional *independent* variables can be added to the regression model. In this case, median house price has been added to Model 1. Note that the transformed values for median house price will be used (as tested in Tukey's ladder above).  
+*Additional note: unable to successfully run model raising to power of -1, so log transformed values used instead*
+
+```{r multiregression, paged.print=FALSE}
+
+model2 <- lm(average_gcse_capped_point_scores_2014 ~ 
+               unauthorised_absence_in_all_schools_percent_2013 + log(median_house_price_2014),
+             data = wards_merged)
+
+tidy(model2)
+glance(model2)
+
+df_model2 <- augment(model2, wards_merged)
+
+```
+
+### Multiple regression assumptions: No multicollinearity
+To check for multicollinearity among variables, need to calculate the correlation coefficient.  
+
+```{r multicollinearity, paged.print=FALSE}
+Correlation <- wards_merged %>%
+  st_drop_geometry() %>%  #convert from spatial to regular df
+  select(average_gcse_capped_point_scores_2014, unauthorised_absence_in_all_schools_percent_2013, median_house_price_2014) %>%
+  mutate(ln_median_house_price_2014 = log(median_house_price_2014)) %>%  #Create log-transformed column of median house price
+  # select(-median_house_price_2014) %>%  #Remove the raw column from dataset
+  correlate()
+
+Correlation
+
+#Visualise the correlation matrix
+rplot(Correlation %>% 
+        focus(-average_gcse_capped_point_scores_2014, 
+              -median_house_price_2014,
+              mirror = TRUE)
+      )
+
 ```
 
