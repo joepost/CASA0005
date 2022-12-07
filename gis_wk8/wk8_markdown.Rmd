@@ -297,6 +297,21 @@ How to interpret this? If residuals (errors) are independent, we would expect to
 -   The residuals form a roughly horizontal band around the 0 line. This suggests the variance of the errors are equal.
 -   The residuals "bounce randomly" around the 0 line. This suggests that the errors are independent.
 -   No one residual "stands out" from the basic random pattern of residuals. This suggests that there are no outliers.  
+\
+Plotting a linear regression model in R will quickly produce a suite of plots that can help when assessing assumptions (including the residuals vs fit plot shown above).  
+
+```{r diagnostics}
+par(mfrow=c(2,2))  #plot in a 2 by 2 array
+plot(model1)
+```
+
+An additional method is to test independence of errors (the opposite of 'autocorrelation') through a Durbin-Watson test. The value should lie between 1 and 3, for least concern.  
+
+```{r dwtest}
+#run durbin-watson test
+DW <- durbinWatsonTest(model1)
+tidy(DW)
+```
 
 
 ## Multiple Regression
@@ -331,11 +346,121 @@ Correlation <- wards_merged %>%
 Correlation
 
 #Visualise the correlation matrix
-rplot(Correlation %>% 
-        focus(-average_gcse_capped_point_scores_2014, 
-              -median_house_price_2014,
-              mirror = TRUE)
-      )
+# rplot(Correlation %>% 
+#         focus(-average_gcse_capped_point_scores_2014, 
+#               -median_house_price_2014,
+#               mirror = TRUE)
+#       )
 
 ```
 
+### Variance Inflation Factor (VIF)
+
+The VIF is another way to assess multicollinearity, and can be used as a method to reduce unnecessary predictors. A VIF above 10 is considered problematic.  
+```{r vif}
+vif(model2)
+```
+
+### Checking assumptions
+
+```{r diagnostics multireg}
+par(mfrow=c(2,2))  #plot in a 2 by 2 array
+plot(model2)
+
+```
+
+## Spatial Autocorrelation
+This dataset has a spatial component, and therefore a traditional Durbin-Watson test is not particularly appropriate. Instead, need to test for *spatial autocorrelation*. The first step in this approach is to plot the residuals on a map.  
+
+```{r mapresiduals}
+
+#Convert df_model2 to spatial object
+sf_model2 <- df_model2 %>%
+  st_as_sf(.)
+
+tmap_mode("view")
+
+#Create basemap of wards
+tm_shape(sf_model2) +
+  #Fill polygons with residual value
+  tm_polygons(".resid",
+              palette = "RdYlBu") +
+  #Add points from London schools data
+  tm_shape(ldn_schools) +
+  tm_dots(col = "TYPE")
+
+
+```
+
+### Test statistics - Moran's I
+The Moran's I statistic is used to identify the presence of spatial autocorrelation in a dataset. To calculate Moran's I, need to create a spatial weights matrix based off the neighbours of each polygon. THerefore, the first step is to calculate the centroid of each polygon to use in a nearest-neighbours calculation.  
+
+
+```{r centroids}
+#Calculate centroids
+wards_coords <- wards_merged %>%
+  st_centroid() %>%
+  st_geometry()
+
+#Create binary matrix of neighbours
+wards_nb <- wards_merged %>%
+  poly2nb(queen = TRUE)
+
+plot(wards_nb,
+     st_geometry(wards_coords),
+     col = "blue")
+
+```
+
+Can also calculate neighbours using the *k* nearest neighbours method (based off distance from centroid)  
+
+```{r centroids knn}
+
+wards_nbknn <- wards_coords %>%
+  knearneigh(k=4) %>%
+  knn2nb
+
+plot(wards_nbknn, 
+     st_geometry(wards_coords),
+     col="green")
+
+```
+
+Use the neighbours matrix to calculate spatial weights.
+
+```{r swmatrix}
+
+swm_queens <- wards_nb %>% nb2listw(style = "W")  #'W' style indicates a row standardised matrix
+
+swm_knn <- wards_nbknn %>% nb2listw(style = "W")
+
+```
+
+Finally, use the spatial weights matrix to calculate the Moran's I test statistic. 
+
+```{r moransi, paged.print=FALSE}
+
+moransI_queens <- df_model2 %>%
+  st_drop_geometry() %>%
+  select(.resid) %>%
+  pull() %>%
+  moran.test(., swm_queens) %>%
+  tidy()
+
+moransI_queens
+
+moransI_knn <- df_model2 %>%
+  st_drop_geometry() %>%
+  select(.resid) %>%
+  pull() %>%
+  moran.test(., swm_knn) %>%
+  tidy()
+
+moransI_knn
+
+```
+
+For both our neighbours models, the Moran's I falls between (0.28,0.30). The Moran's I ranges from (-1,1), indicating that we are observing some weak positive correlation (clustering). 
+/
+
+## Spatial Regression
