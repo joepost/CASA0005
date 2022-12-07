@@ -1,0 +1,119 @@
+---
+title: "CASA0005 Week 8 Practical"
+author: "J Post"
+date: "2022-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Load packages
+
+library(tidyverse)
+library(crayon)
+library(tmap)
+library(geojsonio)
+library(plotly)
+library(rgdal)
+library(broom)
+library(mapview)
+library(crosstalk)
+library(sf)
+library(sp)
+library(spdep)
+library(car)
+library(fs)
+library(janitor)
+
+```
+
+## 8.4.1 Preparing the data
+
+Read in datasets to be used:
+
+-   Boundary data: London wards (source: [London Data Store](https://data.london.gov.uk/dataset/statistical-gis-boundary-files-london))
+
+-   Attribute data: London wards atlas
+
+The file is downloaded directly from the Data Store url, and the **fs** package is used to extract the data from a zip file format.
+
+```{r dataload}
+#If first time running script:
+
+checkfile <- file_exists(here::here("data/statistical-gis-boundaries-london.zip"))
+
+if (checkfile == TRUE){
+  Londonwards<-fs::dir_info(here::here("data", 
+                                 "statistical-gis-boundaries-london", 
+                                 "ESRI")) %>%
+  #$ means exact match
+  dplyr::filter(str_detect(path, 
+                           "London_Ward_CityMerged.shp$"))%>%
+  dplyr::select(path)%>%
+  dplyr::pull()%>%
+  #read in the file in
+  sf::st_read()
+  
+  cat(cyan("\nAlready loaded!\n"))
+  
+} else {
+  download.file("https://data.london.gov.uk/download/statistical-gis-boundary-files-london/9ba8c833-6370-4b11-abdc-314aa020d5e0/statistical-gis-boundaries-london.zip", 
+              destfile="data/statistical-gis-boundaries-london.zip")
+
+listfiles<-dir_info(here::here("data")) %>%
+  dplyr::filter(str_detect(path, ".zip")) %>%
+  dplyr::select(path) %>%
+  pull() %>%
+  #print out the .gz file
+  print() %>%
+  as.character() %>%
+  utils::unzip(exdir=here::here("data"))
+
+Londonwards<-fs::dir_info(here::here("data", 
+                                 "statistical-gis-boundaries-london", 
+                                 "ESRI")) %>%
+  #$ means exact match
+  dplyr::filter(str_detect(path, 
+                           "London_Ward_CityMerged.shp$"))%>%
+  dplyr::select(path)%>%
+  dplyr::pull()%>%
+  #read in the file in
+  sf::st_read()
+
+ cat(cyan("\nDownloaded from London Data Store\n"))
+}
+
+
+# Read in attribute data
+LondonWardProfiles <- read_csv(here::here("data","ward-profiles-excel-version.csv"), 
+                               col_names = TRUE, 
+                               locale = locale(encoding = 'Latin1'))
+
+```
+
+### Check the data
+
+Plot a map of the shapefile data:
+
+```{r checkshapedata}
+qtm(Londonwards)
+```
+
+View a sample of the attribute data:
+
+```{r checkattrdata}
+head(LondonWardProfiles)
+```
+
+```{r checkread}
+#check all of the columns have been read in correctly
+Datatypelist <- LondonWardProfiles %>% 
+  summarise_all(class) %>%
+  pivot_longer(everything(), 
+               names_to="All_variables", 
+               values_to="Variable_class")
+
+Datatypelist
+```
+
