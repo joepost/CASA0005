@@ -551,9 +551,44 @@ moransI_splag_knn
 
 ```
 
-
-### Assessing the impacts of spatial lag  
+/
+**Assessing the impacts of spatial lag**  
 Coefficients in a spatial lag model have both direct and indirect effects; a change in the predictor in one area will have an impact on the fit of neighbouring areas, which in turn feed back into the original area. There is therefore debate in the academic as to whether coefficients from a spatial lag model can be directly compared to an OLS model. Make sure to acknowledge this, whichever approach is used.  
+/
+
+### Spatial Error Models
+
+An alternative to the spatial lag is a spatial error model. The spatial error model attempts to deal with the spatial autocorrelation as a 'nuisance' (cause by some kind of misspecification or unobserved predictor variable) that needs to be accounted for, as opposed to it being a core part of interest in our interpretation (as in the spatial lag model). The spatial error model assumes that there is no spatial process in action, just a cluster of un-accounted for but influential variable.   
+
+```{r spatial error, paged.print=FALSE}
+
+model4_sperr <- errorsarlm(average_gcse_capped_point_scores_2014 ~
+                             unauthorised_absence_in_all_schools_percent_2013 + log(median_house_price_2014),
+                           data = wards_merged,
+                           nb2listw(wards_nbknn, style = "C"),
+                           method = "eigen")
+
+tidy(model4_sperr)
+
+```
+
+The lambda value in the model is a measure of the correlation between neighbouring residuals; if there is no correlation, then this model defaults to a normal OLS regression. The results here suggest that spatially correlated errors in residuals lead to an over-estimate of the importance of unauthorised absence in the OLS model and an under-estimate of the importance of affluence (median house price). The spatial error model also estimates higher parameter values for both variables when compared to the spatially lagged model.  
+/
+
+### Deciding which model to use
+
+Conceptualising the expected relationship should help to identify whether a spatial lag or spatial error is appropriate. However, a Lagrange Multiplier test can also be used to prioritise one model or the other. **NOTE that the LM test expects row standardisation (not global)**.  
+
+```{r lagrange multiplier}
+
+lm.LMtests(model2, swm_queens,
+           test = c("LMerr", "LMlag", "RLMerr", "RLMlag", "SARMA"))
+
+```
+
+To interpret this output, first check whether LMerr or LMlag are significant; if only one is, then that is the preferred model. If both are, move to the robust tests (RLMerr, RLMlag) and apply the same rule. In our case, RLMerr is significant but RLMlag is not - therefore a spatial error model is more appropriate.  
+
+/
 
 
 
