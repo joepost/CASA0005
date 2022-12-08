@@ -28,6 +28,7 @@ library(car)
 library(fs)
 library(janitor)
 library(corrr)
+library(spatialreg)
 
 ```
 
@@ -38,6 +39,8 @@ Read in datasets to be used:
 -   Boundary data: London wards (source: [London Data Store](https://data.london.gov.uk/dataset/statistical-gis-boundary-files-london))
 
 -   Attribute data: London wards atlas
+
+-   TEST DOT POINT
 
 The file is downloaded directly from the Data Store url, and the **fs** package is used to extract the data from a zip file format.
 
@@ -216,11 +219,16 @@ q + stat_smooth(method="lm", se=FALSE, size=1) +
 
 The assumptions of a linear regression model must then be validated. These are:  
 \
-1. Is there a linear association between the variables?  
-2. Are the errors independent?  
-3. Are the errors normally distributed?  
-4. Do the errors have equal variance?  
 
+1.    Is there a linear association between the variables? 
+
+2.    Are the errors independent?  
+
+3.    Are the errors normally distributed?  
+
+4.    Do the errors have equal variance?  
+
+\
 To test these assumptions, the model first needs to be tidied using 'broom' and 'tidypredict' packages.
 
 ```{r broom, paged.print=FALSE}
@@ -294,9 +302,18 @@ ggplot(data = df_model1,
 
 How to interpret this? If residuals (errors) are independent, we would expect to see:  
 \
+
 -   The residuals form a roughly horizontal band around the 0 line. This suggests the variance of the errors are equal.
+
 -   The residuals "bounce randomly" around the 0 line. This suggests that the errors are independent.
--   No one residual "stands out" from the basic random pattern of residuals. This suggests that there are no outliers.  
+
+-   No one residual "stands out" from the basic random pattern of residuals. This suggests that there are no outliers.
+
+\
+
+-   Attribute data: London wards atlas
+
+-   TEST DOT POINT
 \
 Plotting a linear regression model in R will quickly produce a suite of plots that can help when assessing assumptions (including the residuals vs fit plot shown above).  
 
@@ -460,7 +477,84 @@ moransI_knn
 
 ```
 
-For both our neighbours models, the Moran's I falls between (0.28,0.30). The Moran's I ranges from (-1,1), indicating that we are observing some weak positive correlation (clustering). 
+For both our neighbours models, the Moran's I falls between (0.28,0.30). The Moran's I ranges from (-1,1), indicating that we are observing some weak positive correlation (clustering).  
 /
 
 ## Spatial Regression
+
+Spatial regression models can be split into spatial lag, spatial error, or geographically weighted regression models. Each model differs on the conceptual basis for how space is expected to interact with the outcome variable.  
+
+### Spatial lag models
+
+First, we will model a spatial lag regression using Queen's case neighbours.  
+
+The 'Rho' in the output is the spatial lag - it measures the variables in the neighbouring spatial areas as defined by the spatial weight matrix. If significant, it means that the GCSE scores in a unit vary based on the GCSE scores in the neighboring units. Likelihood ratio (LR) test shows if the addition of the lag is an improvement (from linear regression) and if that’s significant. Lagrange Multiplier (LM) is a test for the absence of spatial autocorrelation in the lag model residuals. If significant then you can reject the Null (no spatial autocorrelation) and accept the alternative (is spatial autocorrelation).  
+
+The Wald statistic is interpreted in a similar way to the LR. It tests if the new parameters (the lag) should be included in in the model; if significant then the new variable improves the model fit and should be included.  
+
+
+```{r spatiallag, paged.print=FALSE}
+
+#Fit spatial lag model using queen neighbours
+model3_splag_queen <- lagsarlm(average_gcse_capped_point_scores_2014 ~
+                                 unauthorised_absence_in_all_schools_percent_2013 + log(median_house_price_2014),
+                               data = wards_merged,
+                               nb2listw(wards_nb, style = "C"),  #C = globally standardised
+                               method = "eigen")  #Q: What is this doing exactly?
+
+tidy(model3_splag_queen)
+glance(model3_splag_queen)
+summary(model3_splag_queen)
+
+```
+
+Out results indicate we have spatial autocorrelation in the residuals of the model, but the model is not an improvement on OLS — this can also be confirmed with the AIC score (the lower AIC the better).  
+/
+
+Now, test the model with a KNN weights matrix:
+
+```{r spatial lag knn, paged.print=FALSE}
+
+#Fit spatial lag model using knn
+model3_splag_knn <- lagsarlm(average_gcse_capped_point_scores_2014 ~
+                                 unauthorised_absence_in_all_schools_percent_2013 + log(median_house_price_2014),
+                               data = wards_merged,
+                               nb2listw(wards_nbknn, style = "C"),  #C = globally standardised
+                               method = "eigen")  #Q: What is this doing exactly?
+
+tidy(model3_splag_knn)
+glance(model3_splag_knn)
+summary(model3_splag_knn)
+
+```
+
+Using the 4 nearest neighbours instead of just considering all adjacent zones in the spatial weights matrix, the size and significance of the spatially lagged term changes quite dramatically. In the 4 nearest neighbour model it is both quite large, positive and statistically significant (<0.05), conversely the effects of unauthorised absence have reduced. The model also shows a lower AIC compared to the OLS.  
+/
+What this means is that in our study area, the average GCSE score recorded in Wards across the city varies partially with the average GCSE score found in neighbouring Wards. Given the distribution of schools in the capital in relation to where pupils live, this makes sense as schools might draw pupils from a few close neighbouring wards rather than all neighbour bordering a particular Ward.  
+/
+The Moran's I statistic can also be recalculated for the residuals for a spatially lagged model, to check whether spatial autocorrelation has been accounted for.  
+
+```{r moransi spatial lag, paged.print=FALSE}
+
+#First, add the residual values to the main data frame
+df_model3 <- wards_merged %>%
+  mutate(splag_resids = residuals(model3_splag_knn))
+
+moransI_splag_knn <- df_model3 %>%
+  st_drop_geometry() %>%
+  select(splag_resids) %>%
+  pull() %>%
+  moran.test(., swm_knn) %>%
+  tidy()
+
+moransI_splag_knn
+
+```
+
+
+### Assessing the impacts of spatial lag  
+Coefficients in a spatial lag model have both direct and indirect effects; a change in the predictor in one area will have an impact on the fit of neighbouring areas, which in turn feed back into the original area. There is therefore debate in the academic as to whether coefficients from a spatial lag model can be directly compared to an OLS model. Make sure to acknowledge this, whichever approach is used.  
+
+
+
+
